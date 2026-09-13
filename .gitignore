@@ -1,0 +1,22 @@
+# 数据与产物
+data/
+reports/
+warehouse.duckdb
+
+# Spark 运行时
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 环境变量
+.env
+
+# 编辑器
+.idea/
+.vscode/

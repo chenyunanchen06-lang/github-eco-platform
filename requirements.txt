@@ -1,0 +1,20 @@
+# ---- 第 1 周：采集与 ODS（本机已具备） ----
+requests>=2.31
+pyarrow>=14.0
+pandas>=2.0
+
+# ---- 第 2 周：DWD / ADS ----
+# 必须锁 3.5.x：本机 Java 为 1.8，Spark 4.0 需要 Java 17
+pyspark==3.5.3
+
+# ---- 第 3 周：OLAP 与看板 ----
+duckdb>=1.0
+streamlit>=1.30
+plotly>=5.20
+
+# ---- 第 4 周：智能问数 ----
+langchain>=0.3
+langchain-openai>=0.2
+
+# ---- 可选：调度（装 Airflow 较重，时间紧就用 cron 代替） ----
+# apache-airflow>=2.9
