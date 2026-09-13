@@ -14,6 +14,11 @@ __pycache__/
 .venv/
 venv/
 
+# 调试输出
+spark_out.log
+push.log
+*.log
+
 # 环境变量
 .env
 

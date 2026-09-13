@@ -107,7 +107,8 @@ def main() -> int:
     """):
         print(f"  {r:<40}{n:>8,}")
 
-    print(f"\n单条平均体积  {q(con, f'SELECT avg(length(payload)) FROM read_parquet(\\'{glob}\\')')[0][0]:.0f} 字节 (payload)")
+    avg_payload = q(con, f"SELECT avg(length(payload)) FROM read_parquet('{glob}')")[0][0]
+    print(f"\n单条平均体积  {avg_payload:.0f} 字节 (payload)")
     print("=" * 62)
     return 0
 
