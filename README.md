@@ -125,18 +125,50 @@ ODS Parquet  155.3 MB    （单条 817 字节）
 
 ```
 config.py                       全局配置（路径 / 日期范围 / 并发参数）
-scripts/download_gharchive.py   01  下载原始数据（并发 + 重试 + 断点续传）
+spark_env.py                    PySpark 会话工厂（Windows 环境适配 + 版本检查）
+scripts/download_gharchive.py   01  下载原始数据（并发 + 限速 + 断点续传）
 scripts/raw_to_ods.py           02  gz -> ODS Parquet
+scripts/check_ods.py            02b ODS 验收报告
+scripts/ods_to_dwd.py           03  ODS -> DWD（PySpark，按天增量）
+scripts/dwd_to_ads.py           04  DWD -> ADS 6 张应用宽表
+scripts/dq_check.py             05  5 条数据质量校验 -> reports/dq_report.json
+scripts/build_duckdb.py         06  挂载 DuckDB 视图 -> warehouse.duckdb
+app/dashboard.py                07  Streamlit 可视化看板
+app/pages/2_text2sql.py         09  智能问数界面
+text2sql/agent.py               08  Text-to-SQL Agent（含安全护栏与模板兜底）
 docs/DESIGN.md                  表结构、脚本清单、里程碑、简历文案
-data/                           数据落地（gitignore）
-reports/                        数据质量报告（gitignore）
 ```
+
+## 智能问数（Text-to-SQL）
+
+用中文提问，自动生成 SQL 并查询（`app/pages/2_text2sql.py`）。
+
+**不配 API Key 也能跑** —— 会退化为模板模式，用预置 SQL 回答常见问题；
+配了 Key 就走 LLM，支持任何 OpenAI 兼容接口：
+
+```bash
+export TEXT2SQL_API_KEY=sk-xxx
+export TEXT2SQL_BASE_URL=https://api.deepseek.com/v1   # 可换成通义/智谱/Ollama
+export TEXT2SQL_MODEL=deepseek-chat
+```
+
+**三重保护**
+
+1. **只读护栏**：只允许 `SELECT` / `WITH`，出现 `DROP`/`DELETE`/`COPY`/`INSTALL`
+   等任何写操作关键字直接拒绝（`text2sql/agent.py::is_safe`）
+2. **执行反馈重试**：SQL 报错时把数据库的**原始错误信息**回灌给模型重新生成，
+   最多 3 轮。模型第一次常写错列名，看到
+   `Binder Error: Referenced column "xxx" not found` 之后基本能自己改对
+3. **拒答而非编造**：3 轮仍失败就明确报错，不返回任何数据
+
+> ⚠️ **别用本地 4B 模型做 Text-to-SQL**。SQL 生成要求精确记忆列名，
+> 小模型会编造不存在的字段。用 API 成本极低（每次几百 token）。
 
 ## 进度
 
 - [x] 环境勘察、数据源验证、工程骨架
-- [x] **第 1 周 · 采集打通**（3 小时样本已端到端跑通，脚本可用）
-  - [ ] 扩大到 7 天全量
-- [ ] 第 2 周 · 清洗聚合
-- [ ] 第 3 周 · 看板与校验
-- [ ] 第 4 周 · 智能问数
+- [x] 第 1 周 · 采集打通（**7 天 168 个文件 / 6.19 GB**）
+- [x] 第 2 周 · 清洗聚合（**DWD 1013 万行 + ADS 6 表 428 万行**，事实表构建提速 4.9x）
+- [x] 第 3 周 · 看板与校验（DuckDB 11 视图 + Streamlit 看板 + 5 条质量校验）
+- [x] 第 4 周 · 智能问数（Text-to-SQL Agent + 安全护栏 + 模板兜底）
+- [ ] 部署上线 + 补齐缺失的 27 小时数据
