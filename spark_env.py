@@ -25,6 +25,9 @@ HADOOP_CANDIDATES = [
 ]
 PYTHON = Path(sys.executable)
 
+# driver JVM 堆上限。本机内存充裕（另有 6 GB 级数据要过），给 6g。
+DRIVER_MEMORY = os.getenv("GH_DRIVER_MEMORY", "6g")
+
 
 def _find_hadoop() -> Path | None:
     for p in HADOOP_CANDIDATES:
@@ -33,8 +36,37 @@ def _find_hadoop() -> Path | None:
     return None
 
 
+def _check_python_version() -> None:
+    """【血泪教训】PySpark 3.5.x 在 Python 3.12 下跑不起来。
+
+    PySpark 3.5.3 的元数据写的是 `Requires-Python: >=3.8`，但实测在
+    Anaconda 的 Python 3.12.7 下，Python worker 会在启动瞬间**静默死亡**：
+    stderr 被 Spark 合并进协议流吞掉，上层只能看到
+        org.apache.spark.SparkException: Python worker exited unexpectedly (crashed)
+        Caused by: java.io.EOFException
+    排查了 PYTHONPATH / winutils / driver.host / IPv6 / reuse / PATH 全部无效，
+    换 Python 3.11.16 立刻正常。
+
+    与其让人对着 EOFException 抓瞎几小时，不如在这里直接拦住。
+    """
+    if sys.version_info >= (3, 12) and not os.getenv("GH_ALLOW_PY312"):
+        raise RuntimeError(
+            f"\n{'=' * 66}\n"
+            f"  当前解释器是 Python {sys.version.split()[0]}，PySpark 3.5.x 无法在 3.12+ 下运行。\n"
+            f"  典型症状：Python worker exited unexpectedly (crashed) + java.io.EOFException\n"
+            f"\n"
+            f"  请改用 3.11 环境运行本项目的 Spark 脚本：\n"
+            f"      D:\\1\\anaconda3\\envs\\spark\\python.exe\n"
+            f"\n"
+            f"  如确实要用 3.12 试，设置环境变量 GH_ALLOW_PY312=1 跳过本检查。\n"
+            f"{'=' * 66}\n"
+        )
+
+
 def setup_env() -> None:
     """把 Windows 上 PySpark 需要的环境变量补齐。"""
+    _check_python_version()
+
     # 系统里已配好 HADOOP_HOME 且有效时就用它，不要覆盖（少一层出错的余地）
     existing = os.environ.get("HADOOP_HOME")
     if existing and (Path(existing) / "bin" / "winutils.exe").exists():
@@ -56,6 +88,15 @@ def setup_env() -> None:
     os.environ["PYSPARK_PYTHON"] = str(PYTHON)
     os.environ["PYSPARK_DRIVER_PYTHON"] = str(PYTHON)
     os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
+
+    # driver 堆内存：local 模式下 executor 就住在 driver JVM 里，默认 1g 处理
+    # 千万行数据必然 OOM（实测报 java.lang.OutOfMemoryError: Java heap space）。
+    # 注意：SparkSession 上设 spark.driver.memory 是无效的 —— driver JVM 在
+    # 会话创建之前就由 py4j 启动了，只能通过 PYSPARK_SUBMIT_ARGS 影响启动参数。
+    os.environ.setdefault(
+        "PYSPARK_SUBMIT_ARGS",
+        f"--driver-memory {DRIVER_MEMORY} --conf spark.driver.maxResultSize=1g pyspark-shell",
+    )
 
     # 【关键】清掉继承来的 PYTHONPATH。
     # 若宿主环境（IDE / 沙箱 / 某些安全工具）把 PYTHONPATH 指向了带 sitecustomize.py

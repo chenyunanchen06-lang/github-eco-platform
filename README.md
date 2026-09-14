@@ -60,23 +60,39 @@ data/raw       原始 gz（dt=YYYY-MM-DD/HH.json.gz）
 | winutils | `D:\1\apache-hadoop-3.1.3-winutils-m\apache-hadoop-3.1.3-winutils-master\bin\winutils.exe` |
 | pyspark / duckdb | **待安装** |
 
-安装剩余依赖：
+### 两个环境（重要）
+
+Spark 脚本必须跑在**独立的 Python 3.11 环境**里，其余脚本用 Anaconda base 即可：
+
+| 用途 | 解释器 |
+|---|---|
+| 采集 / ODS / DuckDB / 看板 | `D:\1\anaconda3\python.exe`（3.12） |
+| **PySpark 脚本** | **`D:\1\anaconda3\envs\spark\python.exe`（3.11.16）** |
+
+环境创建方式（已建好，无需重跑）：
 
 ```bash
-D:/1/anaconda3/python.exe -m pip install pyspark==3.5.3 duckdb
+D:\1\anaconda3\Scripts\conda.exe create -n spark python=3.11 -y \
+  -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/ --override-channels
+D:\1\anaconda3\envs\spark\python.exe -m pip install \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple pyspark==3.5.3
 ```
 
-**两个 Windows 上的坑（务必先看）**
+### 三个必须知道的坑（全部踩过）
 
-1. **PySpark 必须锁 3.5.x**。本机是 Java 8，而 Spark 4.0 要求 Java 17，
-   装最新版会直接起不来。
-2. **需要设置 `HADOOP_HOME`** 指向 winutils 的上级目录，否则 PySpark 写入时会报
-   `HADOOP_HOME and hadoop.home.dir are unset`：
+1. **PySpark 3.5.x 不能用 Python 3.12**。元数据写的是 `Requires-Python: >=3.8`，
+   但实测在 Anaconda 的 3.12.7 下 worker 会**静默死亡**，只留下
+   `Python worker exited unexpectedly (crashed)` + `java.io.EOFException`。
+   曾逐一排除 PYTHONPATH 污染、winutils 路径、`spark.driver.host`、IPv6 优先、
+   `worker.reuse`、PATH 顺序等全部无效，**换 3.11.16 立刻正常**。
+   `spark_env.py` 已内置版本检查，会直接拦住而不是让你对着 EOFException 抓瞎。
+2. **PySpark 必须锁 3.5.x**。本机 Java 是 1.8，Spark 4.0 要求 Java 17。
+3. **`-Dhadoop.home.dir` 必须用正斜杠**。传 Windows 反斜杠路径时反斜杠会被
+   逐层吞掉，变成 `D:1hadoop-3.1.3`，Spark 报 "is not an absolute path"。
+   `spark_env.py` 已用 `Path.as_posix()` 处理。
 
-   ```bash
-   export HADOOP_HOME="D:/1/apache-hadoop-3.1.3-winutils-m/apache-hadoop-3.1.3-winutils-master"
-   export PATH="$HADOOP_HOME/bin:$PATH"
-   ```
+`HADOOP_HOME` / `PYSPARK_PYTHON` / `SPARK_LOCAL_IP` 等都由 `spark_env.py` 统一设置，
+Spark 脚本里只需 `from spark_env import get_spark`，不用手工配环境。
 
 ## 快速开始
 

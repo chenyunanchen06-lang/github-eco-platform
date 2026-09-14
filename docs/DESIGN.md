@@ -133,18 +133,30 @@ Streamlit 可视化看板        自然语言问数 Agent
 | push_size | int | `payload.size`，PushEvent 独有 |
 | push_distinct_size | int | `payload.distinct_size`，去重提交数 |
 | push_ref | string | `payload.ref`，如 `refs/heads/main` |
-| pr_action | string | `payload.action`（PR 事件） |
+| pr_action | string | `payload.action`（PR 事件）。**合并信号在这里：取值 `merged`** |
 | pr_number | int | `payload.number` |
-| pr_merged | bool | `payload.pull_request.merged` |
 | issue_action | string | `payload.action`（Issue 事件） |
 | issue_number | int | `payload.issue.number` |
 | release_action | string | `payload.action` |
 | create_ref_type | string | `repository` / `branch` / `tag` |
 
-> **语言字段的数据现实**：GitHub Archive 的事件里**只有部分事件类型带语言信息**
-> （`PullRequestEvent` 的 `payload.pull_request.base.repo.language`、`ForkEvent` 的
-> `payload.forkee.language` 等）。所以语言维度只能来自这几类事件，不能声称
-> "全量事件的语言分布"。这是个真实的数据局限，面试时主动说出来比被问出来好。
+> **⚠️ 语言维度已被实测证伪（重要）**
+>
+> 最初的设想是"从 `PullRequestEvent` 的 `payload.pull_request.base.repo.language`
+> 取仓库语言"。**实测证明这是错的**：GitHub Archive 对 `pull_request` 做过字段裁剪，
+> 只保留 `base` / `head` / `id` / `number` / `url`，而 `base.repo` 里只有
+> `id` / `name` / `url` —— **没有 `language`**。
+>
+> 全表扫描（前 2 万行）确认：`language` 只出现在
+> `ForkEvent.forkee.language`，覆盖率约 1%；全量事实表里带语言的只有
+> **3,612 / 10,133,218 条（0.04%）**。
+>
+> **结论：语言维度在本数据源上不可做**，`dim_repo.language` 保留但不使用，
+> 原计划的 `ads.daily_language_trend` 已替换为 `ads.daily_pr_funnel`。
+>
+> 这是很好的面试素材 —— "我原以为能从 PR 事件拿到仓库语言，实测发现上游
+> 字段被裁剪了，于是改用可验证的替代指标"。**主动暴露数据源的真实边界，
+> 比硬凑一个 99% 为空的维度强得多。**
 
 #### 维度表
 
@@ -183,8 +195,8 @@ Streamlit 可视化看板        自然语言问数 Agent
 | 表名 | 粒度 | 字段 | 支撑看板 |
 |---|---|---|---|
 | `ads.daily_event_type` | 日 × 事件类型 | dt, event_type, event_cnt, actor_cnt | 事件类型分布 |
-| `ads.daily_repo_rank` | 日 × 仓库 | dt, repo_name, language, event_cnt, push_cnt, star_cnt, fork_cnt, pr_cnt, issue_cnt | 仓库活跃榜 |
-| `ads.daily_language_trend` | 日 × 语言 | dt, language, repo_cnt, actor_cnt, push_cnt, pr_cnt | 语言趋势 |
+| `ads.daily_repo_rank` | 日 × 仓库 | dt, repo_name, org_login, event_cnt, push_cnt, star_cnt, fork_cnt, pr_cnt, issue_cnt | 仓库活跃榜 |
+| `ads.daily_pr_funnel` | 日 × PR 动作 | dt, pr_action, pr_cnt, merged_cnt, merge_rate | PR 漏斗（替代原"语言趋势"，原因见 §3.2） |
 | `ads.daily_actor_active` | 日 × 用户 | dt, actor_login, event_cnt, repo_cnt, push_cnt | 贡献者活跃度 |
 | `ads.daily_org_rank` | 日 × 组织 | dt, org_login, event_cnt, repo_cnt, actor_cnt | 组织榜 |
 | `ads.hourly_activity` | 日 × 小时 | dt, hour, event_cnt, actor_cnt | 小时活跃热力 |
@@ -265,14 +277,29 @@ Streamlit 可视化看板        自然语言问数 Agent
 > 装 DuckDB 只需 `pip install duckdb`（约 20 MB），能直接读 Parquet 目录，
 > 是这套流程里性价比最高的验证工具。
 
-### 第 2 周 · 清洗聚合（验收：DWD + ADS 产出）
+### 第 2 周 · 清洗聚合 ✅ 已完成
 
-- [ ] `03` PySpark 解析 payload → `dwd.gh_events_detail` + 3 张维度表
-- [ ] `04` 聚合出 6 张 ADS 表
-- [ ] 完成 §6 中至少 2 项优化，**记录前后耗时**
+- [x] `03` PySpark 解析 payload → `dwd.gh_events_detail`（**10,133,218 行 / 345.5 MB**）+ 3 张维度表
+  - `dim_repo` 1,761,041 行 · `dim_actor` 1,167,443 行 · `dim_date` 7 行
+- [x] `04` 聚合出 6 张 ADS 表（合计 4,279,765 行，31.8s）
+- [x] 优化项 1 完成：**按天增量处理，事实表构建 510.9s → 103.3s（4.9x）**
 
-**环境注意**：PySpark 必须锁 `3.5.x`（本机 Java 8；Spark 4.0 要求 Java 17）。
-需要设置 `HADOOP_HOME` 指向 `D:\1\apache-hadoop-3.1.3-winutils-m\apache-hadoop-3.1.3-winutils-master`。
+**已实测的性能数据（可直接写简历）**
+
+| 项 | 数值 |
+|---|---|
+| ODS 读取 | 10,135,464 行 / 4.4s |
+| 事实表构建（全量一次） | **510.9s** |
+| 事实表构建（按天增量） | **103.3s（↓ 4.9x）** |
+| ADS 六表 | 31.8s |
+
+> 全量一次处理会 `java.lang.OutOfMemoryError: GC overhead limit exceeded`；
+> 按天切分后每批 ~150 万行，内存压力降一个数量级。**"按天增量"不只是为了稳，
+> 实测还快了 4.9 倍** —— 这是本项目的第一个真实优化项，有前后对比数字。
+
+**环境注意**：PySpark 必须锁 `3.5.x`（本机 Java 8；Spark 4.0 要求 Java 17），
+且**必须用 Python 3.11**（详见 README「三个必须知道的坑」）。
+统一用 `D:\1\anaconda3\envs\spark\python.exe` 运行，环境由 `spark_env.py` 管理。
 
 ### 第 3 周 · 看板与校验（验收：看板可见 + DQ 报告）
 
