@@ -1,7 +1,12 @@
 # GitHub 开源生态数据分析与智能查询平台
 
+🚀 **在线 Demo**：https://eco-plaom-dashboard-qvjgnvcyqxjdgre4.streamlit.app/
+
 面向 **数据开发** 与 **AI 应用开发** 双方向的个人实战项目：把 GitHub 全站公开事件
 从原始采集、数仓分层建模，一路做到可视化看板与自然语言问数。
+
+> 线上 Demo 用的是随仓库分发的演示数据集（2.26 MB），
+> 完整数据 8 天 1,491 万条约 15 GB，无法随仓库分发。页面会明确标注当前数据源。
 
 完整设计（表结构、脚本清单、里程碑、简历文案）见 **[docs/DESIGN.md](docs/DESIGN.md)**。
 
