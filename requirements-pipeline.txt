@@ -1,0 +1,10 @@
+# 完整数据管道（采集 → ODS → DWD → ADS）所需依赖。
+# 只在本地跑数据时安装；部署看板用不上（见 requirements.txt）。
+-r requirements.txt
+
+# ⚠️ 必须锁 3.5.x：本机 Java 是 1.8，Spark 4.0 要求 Java 17
+# ⚠️ 必须配 Python 3.11 使用（3.12 下 worker 会静默崩溃）
+#    推荐：conda create -n spark python=3.11
+# 安装建议加国内源，否则 317 MB 源码包会卡很久：
+#    pip install -r requirements-pipeline.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pyspark==3.5.3

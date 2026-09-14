@@ -1,20 +1,11 @@
-# ---- 第 1 周：采集与 ODS（本机已具备） ----
-requests>=2.31
-pyarrow>=14.0
-pandas>=2.0
-
-# ---- 第 2 周：DWD / ADS ----
-# 必须锁 3.5.x：本机 Java 为 1.8，Spark 4.0 需要 Java 17
-pyspark==3.5.3
-
-# ---- 第 3 周：OLAP 与看板 ----
+# 看板 + 查询层 + 智能问数所需依赖 —— 即 Streamlit Community Cloud 需要安装的全部内容。
+#
+# 刻意不含 pyspark：它是 317 MB 的源码包，云端要现场编译 wheel，又慢又没必要
+# （看板只读 demo/demo.duckdb 或 warehouse.duckdb，不碰 Spark）。
+# 完整数据管道的依赖见 requirements-pipeline.txt。
 duckdb>=1.0
 streamlit>=1.30
 plotly>=5.20
-
-# ---- 第 4 周：智能问数 ----
-langchain>=0.3
-langchain-openai>=0.2
-
-# ---- 可选：调度（装 Airflow 较重，时间紧就用 cron 代替） ----
-# apache-airflow>=2.9
+pandas>=2.0
+pyarrow>=14.0
+requests>=2.31

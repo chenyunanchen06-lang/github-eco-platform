@@ -66,6 +66,27 @@ def main() -> int:
             missing.append(f"{schema}.{name}")
             print(f"  {schema}.{name:<20} 跳过（{type(exc).__name__}）")
 
+    # ── 概览指标物化成一张小表 ──
+    # 看板的指标卡原本要 count 全表 1,490 万行；物化后变成一行查询。
+    # 而且演示数据集（demo.duckdb）也提供同名表，看板切换数据源时不用改代码。
+    con.execute("""
+        CREATE OR REPLACE TABLE summary AS
+        SELECT dt AS date,
+               count(*)                 AS events,
+               count(DISTINCT repo_id)  AS repos,
+               count(DISTINCT actor_id) AS actors
+        FROM dwd.gh_events_detail GROUP BY 1 ORDER BY 1
+    """)
+    con.execute("""
+        CREATE OR REPLACE TABLE meta AS
+        SELECT current_timestamp AS built_at,
+               (SELECT count(*) FROM summary) AS days,
+               (SELECT min(date) FROM summary) AS date_from,
+               (SELECT max(date) FROM summary) AS date_to,
+               'full' AS kind
+    """)
+    print(f"  {'summary':<22} {con.execute('SELECT count(*) FROM summary').fetchone()[0]:>10,} 行   （物化）")
+
     print("-" * 66)
     tables = con.execute("""
         SELECT table_schema, table_name FROM information_schema.tables

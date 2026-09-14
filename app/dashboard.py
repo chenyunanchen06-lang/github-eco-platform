@@ -26,12 +26,19 @@ BLUE = "#3B6FD4"
 ACCENT = "#D85A30"
 
 
+def resolve_db() -> tuple[Path, str]:
+    path, kind = C.resolve_warehouse()
+    if kind == "missing":
+        st.error("既没有 warehouse.duckdb 也没有 demo/demo.duckdb。\n\n"
+                 "请先运行 `python scripts/build_duckdb.py`（完整数据）"
+                 "或 `python scripts/build_demo_data.py`（演示数据）")
+        st.stop()
+    return path, kind
+
+
 @st.cache_resource
 def get_con() -> duckdb.DuckDBPyConnection:
-    if not C.WAREHOUSE_DB.exists():
-        st.error(f"找不到 {C.WAREHOUSE_DB.name}，请先运行 `python scripts/build_duckdb.py`")
-        st.stop()
-    return duckdb.connect(str(C.WAREHOUSE_DB), read_only=True)
+    return duckdb.connect(str(resolve_db()[0]), read_only=True)
 
 
 @st.cache_data(ttl=600)
@@ -66,19 +73,31 @@ d0, d1 = str(lo), str(hi)
 st.title("GitHub 开源生态数据分析")
 st.caption(f"数据源 GitHub Archive ｜ 当前范围 {d0} ~ {d1}")
 
+_db_path, _db_kind = resolve_db()
+if _db_kind == "demo":
+    st.warning(
+        "**当前使用演示数据集**（`demo/demo.duckdb`）。\n\n"
+        "完整数据 8 天共 1,491 万条、约 15 GB，无法随仓库分发。"
+        "演示数据保留了全部概览指标与小表，"
+        "排行榜每天只保留 Top 300 —— **看板结构与完整版完全一致**。\n\n"
+        "要看完整数据：跑完 `download_gharchive.py` → `raw_to_ods.py` → "
+        "`ods_to_dwd.py` → `dwd_to_ads.py` → `build_duckdb.py`。"
+    )
+
+# 指标卡读 summary 表（已物化），不再 count 全表 1,490 万行。
+# 仓库/用户用**日均**而不是区间去重总数 —— 分区间的 distinct 无法从每日汇总相加得到，
+# 硬加会把连续多天活跃的账号重复计数，不如如实报日均。
 m = q(f"""
-    SELECT count(*) AS events,
-           count(DISTINCT repo_id) AS repos,
-           count(DISTINCT actor_id) AS actors,
-           count(DISTINCT dt) AS days
-    FROM dwd.gh_events_detail WHERE dt BETWEEN DATE '{d0}' AND DATE '{d1}'
+    SELECT sum(events) AS events, count(*) AS days,
+           avg(repos) AS repos_daily, avg(actors) AS actors_daily
+    FROM summary WHERE date BETWEEN DATE '{d0}' AND DATE '{d1}'
 """).iloc[0]
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("事件总数", f"{m.events:,.0f}")
 c2.metric("覆盖天数", f"{m.days:.0f}")
-c3.metric("活跃仓库", f"{m.repos:,.0f}")
-c4.metric("活跃用户", f"{m.actors:,.0f}")
+c3.metric("日均活跃仓库", f"{m.repos_daily:,.0f}")
+c4.metric("日均活跃用户", f"{m.actors_daily:,.0f}")
 
 # ──────────────────────────── 1. 事件类型分布 ────────────────────────────
 st.subheader("事件类型分布")

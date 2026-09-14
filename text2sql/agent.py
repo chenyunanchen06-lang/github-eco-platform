@@ -237,9 +237,11 @@ def ask(question: str, con=None, history: list[dict] | None = None) -> Result:
     t0 = time.time()
     own_con = con is None
     if own_con:
-        if not C.WAREHOUSE_DB.exists():
-            return Result(question, mode="refused", error="warehouse.duckdb 不存在")
-        con = duckdb.connect(str(C.WAREHOUSE_DB), read_only=True)
+        db_path, kind = C.resolve_warehouse()
+        if kind == "missing":
+            return Result(question, mode="refused",
+                          error="找不到 warehouse.duckdb，也没有 demo/demo.duckdb")
+        con = duckdb.connect(str(db_path), read_only=True)
 
     res = Result(question=question)
 

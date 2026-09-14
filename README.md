@@ -97,6 +97,17 @@ D:\1\anaconda3\envs\spark\python.exe -m pip install \
 `HADOOP_HOME` / `PYSPARK_PYTHON` / `SPARK_LOCAL_IP` 等都由 `spark_env.py` 统一设置，
 Spark 脚本里只需 `from spark_env import get_spark`，不用手工配环境。
 
+### 依赖分两份
+
+```bash
+pip install -r requirements.txt            # 看板 + 查询层 + 智能问数（很小）
+pip install -r requirements-pipeline.txt   # 再加上 Spark 数据管道（含 317 MB 的 pyspark）
+```
+
+拆开的原因：Streamlit Cloud 会安装仓库根目录的 `requirements.txt`，
+而**看板根本不需要 Spark**。把 pyspark 留在里面会让云端构建多花几分钟去编译
+一个用不到的 317 MB 源码包。
+
 ## 快速开始
 
 ```bash
@@ -166,6 +177,47 @@ export TEXT2SQL_MODEL=deepseek-chat
 
 > ⚠️ **别用本地 4B 模型做 Text-to-SQL**。SQL 生成要求精确记忆列名，
 > 小模型会编造不存在的字段。用 API 成本极低（每次几百 token）。
+
+## 演示数据集（clone 下来直接能跑）
+
+完整数据 8 天约 **15 GB**，不可能进 Git 仓库。所以仓库里额外带一份
+`demo/demo.duckdb`（**2.26 MB**），让任何人 clone 下来就能看到完整看板：
+
+```bash
+pip install -r requirements.txt
+python -m streamlit run app/dashboard.py
+```
+
+看板会自动选择数据源：有 `warehouse.duckdb` 就用完整的，没有就回落到
+`demo/demo.duckdb`，并在页面上明确标注当前是演示数据。
+
+| | 完整版 | 演示版 |
+|---|---|---|
+| 概览指标（summary） | 全量 | 全量 |
+| 事件类型 / PR 漏斗 / 小时热力 | 全量 | 全量 |
+| 仓库榜 / 用户榜 / 组织榜 | 3,511,386 / 2,409,486 / 306,368 行 | 每天 Top 300（各 2,400 行） |
+| 体积 | 约 15 GB | **2.26 MB** |
+
+重新生成：`python scripts/build_demo_data.py`
+（注意 `demo.duckdb` 里的表建在 **`ads` schema** 下，和完整库保持一致 ——
+否则看板里 `ads.xxx` 的查询切到演示模式会全部报表不存在。）
+
+## 部署到 Streamlit Community Cloud
+
+1. 把代码推到 GitHub（`demo/demo.duckdb` 要一起提交，`.gitignore` 没有排除它）
+2. 打开 https://share.streamlit.io ，用 GitHub 账号登录
+3. **New app** → 选仓库 `github-eco-platform` → 分支 `main`
+4. **Main file path** 填 `app/dashboard.py`
+5. Deploy
+
+> 云端只需要 `requirements.txt`（不含 Spark），构建很快。
+> 若要做 Text-to-SQL，在 Streamlit Cloud 的 **Settings → Secrets** 里加：
+> ```toml
+> TEXT2SQL_API_KEY = "sk-xxx"
+> TEXT2SQL_BASE_URL = "https://api.deepseek.com/v1"
+> TEXT2SQL_MODEL = "deepseek-chat"
+> ```
+> 不配也能跑 —— 会自动降级成模板模式，只是能回答的问题受限。
 
 ## 进度
 

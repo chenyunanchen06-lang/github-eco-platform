@@ -31,6 +31,25 @@ RETRY = int(os.getenv("GH_RETRY", "3"))
 TIMEOUT = int(os.getenv("GH_TIMEOUT", "60"))
 
 
+DEMO_DB = ROOT / "demo" / "demo.duckdb"
+
+
+def resolve_warehouse() -> tuple[Path, str]:
+    """选择要用的 DuckDB 文件，返回 (路径, 类型)。
+
+    完整数据约 15 GB，不可能进 Git 仓库，所以额外产出一份 2 MB 的演示数据集
+    （`scripts/build_demo_data.py`），让任何人 clone 下来就能跑起看板和问数。
+    优先用完整仓库，找不到才回落。
+
+    dashboard.py 与 text2sql/agent.py 都走这个函数，避免两处逻辑不一致。
+    """
+    if WAREHOUSE_DB.exists():
+        return WAREHOUSE_DB, "full"
+    if DEMO_DB.exists():
+        return DEMO_DB, "demo"
+    return WAREHOUSE_DB, "missing"
+
+
 def ensure_dirs() -> None:
     for d in (RAW_DIR, ODS_DIR, DWD_DIR, ADS_DIR, REPORT_DIR):
         d.mkdir(parents=True, exist_ok=True)
