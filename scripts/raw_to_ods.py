@@ -19,6 +19,7 @@ import argparse
 import gzip
 import json
 import sys
+import zlib
 from pathlib import Path
 
 import pyarrow as pa
@@ -83,13 +84,20 @@ def convert_file(gz_path: Path, out_dir: Path, overwrite: bool) -> dict:
 
     rows: list[dict] = []
     bad = 0
-    with gzip.open(gz_path, "rt", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            rec = parse_line(line)
-            if rec is None:
-                bad += 1
-            else:
-                rows.append(rec)
+    try:
+        with gzip.open(gz_path, "rt", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                rec = parse_line(line)
+                if rec is None:
+                    bad += 1
+                else:
+                    rows.append(rec)
+    except (EOFError, OSError, gzip.BadGzipFile, zlib.error) as exc:
+        # 下载被中断时 gz 会截断，表现为「Compressed file ended before the
+        # end-of-stream marker」。**不要让它炸掉整个批次** —— 记下来，让调用方
+        # 汇总后提示用户重下这一个文件。
+        return {"rows": 0, "bad": bad, "bytes": 0, "reused": False,
+                "error": f"{type(exc).__name__}: {exc}"}
 
     if not rows:
         return {"rows": 0, "bad": bad, "bytes": 0, "reused": False}
@@ -112,6 +120,7 @@ def main() -> int:
 
     grand_rows = grand_bad = grand_bytes = grand_raw_bytes = 0
     processed = reused = 0
+    broken: list[str] = []
 
     for day_dir in day_dirs:
         date = day_dir.name.split("=", 1)[1]
@@ -126,6 +135,11 @@ def main() -> int:
             out_dir = C.ODS_DIR / f"dt={date}" / f"hour={hour:02d}"
             stat = convert_file(gz, out_dir, args.overwrite)
 
+            if stat.get("error"):
+                broken.append(f"{gz.as_posix()}  ({stat['error']})")
+                print(f"          ⚠️ 跳过损坏文件 {gz.name}: {stat['error']}")
+                continue
+
             day_rows += stat["rows"]
             grand_rows += stat["rows"]
             grand_bad += stat["bad"]
@@ -138,6 +152,11 @@ def main() -> int:
 
     print("-" * 52)
     print(f"处理文件 {processed} 个（复用 {reused} 个）")
+    if broken:
+        print(f"\n⚠️  {len(broken)} 个文件损坏（多半是下载被中断导致 gz 截断）。")
+        print("   删掉它们再重跑下载即可自动补回：")
+        for b in broken:
+            print(f"     - {b}")
     print(f"事件总行数   {grand_rows:,}")
     print(f"解析失败行   {grand_bad:,}")
     if grand_bytes:

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import random
 import sys
 import threading
@@ -55,6 +56,23 @@ class RateLimiter:
 
 def target_path(date: str, hour: int) -> Path:
     return C.RAW_DIR / f"dt={date}" / f"{hour:02d}.json.gz"
+
+
+def verify_gz(path: Path) -> bool:
+    """流式读完整个 gz，确认没有截断。
+
+    必要性：断点续传的跳过逻辑只看「文件存在且 size > 0」。如果上次下载被中途
+    杀死，可能留下一个非空的**截断文件**，之后每次运行都会被当成"已下载"跳过，
+    直到下游解析时才炸出 `EOFError: Compressed file ended before the
+    end-of-stream marker`。所以提供一个显式校验入口。
+    """
+    try:
+        with gzip.open(path, "rb") as fh:
+            while fh.read(1 << 20):
+                pass
+        return True
+    except Exception:
+        return False
 
 
 def fetch_one(date: str, hour: int, limiter: RateLimiter) -> dict:
@@ -104,7 +122,19 @@ def main() -> int:
     ap.add_argument("--dates", type=str, default="", help="显式日期列表，逗号分隔")
     ap.add_argument("--hours", type=str, default="", help="只下指定小时，逗号分隔，如 0,1,2（默认全部 24 小时）")
     ap.add_argument("--sleep", type=float, default=0.8, help="请求最小间隔秒数，防限流（默认 0.8）")
+    ap.add_argument("--verify", action="store_true",
+                    help="先逐个校验本地已有 gz 是否完整，删掉截断的文件（随后会自动重下）")
     args = ap.parse_args()
+
+    if args.verify:
+        existing = sorted(C.RAW_DIR.rglob("*.json.gz"))
+        print(f"校验 {len(existing)} 个本地文件…")
+        bad = [p for p in existing if not verify_gz(p)]
+        for p in bad:
+            print(f"  ✗ 截断，已删除：{p.as_posix()}")
+            p.unlink()
+        print(f"校验完成：{len(existing) - len(bad)} 个正常，"
+              f"{len(bad)} 个截断已清理\n")
 
     dates = [d.strip() for d in args.dates.split(",") if d.strip()] or C.default_dates(args.days)
     hours = [int(h) for h in args.hours.split(",") if h.strip()] or C.HOURS
